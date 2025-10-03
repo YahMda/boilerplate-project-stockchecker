@@ -12,14 +12,14 @@ const runner = require('./test-runner');
 
 const app = express();
 
-// ===== Security (Helmet + CSP) =====
+// ===== Security (Helmet + CSP strict) =====
 app.use(helmet());
 app.use(
   helmet.contentSecurityPolicy({
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"], // hanya script dari server sendiri
-      styleSrc: ["'self'"]   // hanya css dari server sendiri
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'"]
     }
   })
 );
@@ -30,55 +30,39 @@ app.use(cors({ origin: '*' }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// ===== Database connection =====
+// ===== Routes =====
+app.route('/')
+  .get(function (req, res) {
+    res.sendFile(process.cwd() + '/views/index.html');
+  });
+
+fccTestingRoutes(app);
+
+// ===== Database connection + API mounting =====
 const MONGO_URI = process.env.DB;
 
-async function startServer() {
-  let client;
+async function init() {
   try {
-    console.log('Mencoba menghubungkan ke database...');
-    client = new MongoClient(MONGO_URI);
+    const client = new MongoClient(MONGO_URI);
     await client.connect();
-
-    console.log('Koneksi database berhasil!');
     const db = client.db('stock_checker');
+    apiRoutes(app, db);   // <-- mount API di sini
+    console.log('Database connected');
 
-    // ===== Routes =====
-    app.route('/')
-      .get(function (req, res) {
-        res.sendFile(process.cwd() + '/views/index.html');
+    if (process.env.NODE_ENV !== 'test') {
+      const listener = app.listen(process.env.PORT || 3000, () => {
+        console.log('Server running on port ' + listener.address().port);
       });
-
-    fccTestingRoutes(app);
-    apiRoutes(app, db);
-
-    // 404 handler
-    app.use(function (req, res, next) {
-      res.status(404).type('text').send('Not Found');
-    });
-
-    // Start server
-    const listener = app.listen(process.env.PORT || 3000, function () {
-      console.log('Aplikasi berjalan di port ' + listener.address().port);
-      if (process.env.NODE_ENV === 'test') {
-        console.log('Menjalankan Tes...');
-        setTimeout(function () {
-          try {
-            runner.run();
-          } catch (e) {
-            console.log('Tes tidak valid:');
-            console.error(e);
-          }
-        }, 3500);
-      }
-    });
+    } else {
+      console.log('Server ready for tests');
+    }
 
   } catch (err) {
-    console.error("KONEKSI DATABASE GAGAL:", err);
+    console.error('DB connection failed:', err);
     process.exit(1);
   }
 }
 
-startServer();
+init();
 
-module.exports = app;
+module.exports = app;   // <--- penting! biar chai-http bisa akses route
